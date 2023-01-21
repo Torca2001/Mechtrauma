@@ -14,6 +14,14 @@ using System.Linq;
 namespace Mechtrauma {
     partial class Mechtrauma: ACsMod {
 
+        List<string> ExtraPowerTypes = new List<string>() {
+            "steam",
+            "kinetic",
+            "thermal",
+            "water",
+            "oxygen"
+        };
+
         // Change the power connection rules to isolate the steam, power and kinetic networks.
         private void changePowerRules() {
             // Changes the power connections limits to create steam and kinetic grids as well as the power grid.
@@ -40,42 +48,18 @@ namespace Mechtrauma {
                     return false;
                 }
 
-                // Check if its a steam connection, if so, only connect steam connections
-                if (conn1.Name.StartsWith("steam") || conn2.Name.StartsWith("steam")) {
-                    return conn1.Name.StartsWith("steam") && conn2.Name.StartsWith("steam") && (
-                        conn1.IsOutput != conn2.IsOutput || 
-                        conn1.Name == "steam" || 
-                        conn2.Name == "steam" ||
-                        conn1.Item.HasTag("steamjb") ||
-                        conn2.Item.HasTag("steamjb")
-                    );
-                } else if (conn1.Name.StartsWith("kinetic") || conn2.Name.StartsWith("kinetic")) {
-                    // Check if its a kinetic connection, if so, only connect kinetic connections
-                    return conn1.Name.StartsWith("kinetic") && conn2.Name.StartsWith("kinetic") && (
-                        conn1.IsOutput != conn2.IsOutput || 
-                        conn1.Name == "kinetic" || 
-                        conn2.Name == "kinetic" ||
-                        conn1.Item.HasTag("kineticjb") ||
-                        conn2.Item.HasTag("kineticjb")
-                    );
-                } else if (conn1.Name.StartsWith("thermal") || conn2.Name.StartsWith("thermal")) {
-                    // Check if its a thermal connection, if so, only connect thermal connections
-                    return conn1.Name.StartsWith("thermal") && conn2.Name.StartsWith("thermal") && (
-                        conn1.IsOutput != conn2.IsOutput || 
-                        conn1.Name == "thermal" || 
-                        conn2.Name == "thermal" ||
-                        conn1.Item.HasTag("thermaljb") ||
-                        conn2.Item.HasTag("thermaljb")
-                    );
-                } else if (conn1.Name.StartsWith("water") || conn2.Name.StartsWith("water")) {
-                    // Check if its a water connection, if so, only connect water connections
-                    return conn1.Name.StartsWith("water") && conn2.Name.StartsWith("water") && (
-                        conn1.IsOutput != conn2.IsOutput || 
-                        conn1.Name == "water" || 
-                        conn2.Name == "water" ||
-                        conn1.Item.HasTag("waterjb") ||
-                        conn2.Item.HasTag("waterjb")
-                    );
+                // Check if its an extra power type connection, if so, only connect extra power type connections to each other
+                foreach (string powerType in ExtraPowerTypes)
+                {
+                    if (conn1.Name.StartsWith(powerType) || conn2.Name.StartsWith(powerType)) {
+                        return conn1.Name.StartsWith(powerType) && conn2.Name.StartsWith(powerType) && (
+                            conn1.IsOutput != conn2.IsOutput || 
+                            conn1.Name == powerType || 
+                            conn2.Name == powerType ||
+                            conn1.Item.HasTag(powerType + "jb") ||
+                            conn2.Item.HasTag(powerType + "jb")
+                        );
+                    }
                 }
 
                 // let the original function handle the rest
@@ -90,27 +74,13 @@ namespace Mechtrauma {
             GameMain.LuaCs.Hook.HookMethod("Barotrauma.Items.Components.Connection", 
             typeof(Barotrauma.Items.Components.Connection).GetConstructor(new[] { typeof(ContentXElement), typeof(ConnectionPanel), typeof(IdRemap) }),
             (object self, Dictionary<string, object> args) => {
-                switch(((Barotrauma.Items.Components.Connection)self).Name) {
-                    case "steam":
-                    case "steam_out":
-                    case "steam_in":
+
+                // Check if its an extra power type connection, if so, set the isPower property to true
+                foreach (string powerType in ExtraPowerTypes)
+                {
+                    if (((Barotrauma.Items.Components.Connection)self).Name.StartsWith(powerType)) {
                         isPowerField.SetValue(self, true);
-                        break;
-                    case "kinetic":
-                    case "kinetic_out":
-                    case "kinetic_in":
-                        isPowerField.SetValue(self, true);
-                        break;
-                    case "thermal":
-                    case "thermal_out":
-                    case "thermal_in":
-                        isPowerField.SetValue(self, true);
-                        break;
-                    case "water":
-                    case "water_out":
-                    case "water_in":
-                        isPowerField.SetValue(self, true);
-                        break;
+                    }
                 }
 
                 return args;
@@ -126,7 +96,6 @@ namespace Mechtrauma {
             (object self, Dictionary<string, object> args) => {
                 Item item = (self as Barotrauma.Items.Components.Powered).Item;
                 
-
                 if (item.Connections == null) { return args; }
 
                 if (item.HasTag("mtpriority")) {
@@ -158,29 +127,16 @@ namespace Mechtrauma {
                     if (!c.IsPower) { continue; }
 
                     c.Priority = priority;
-                    switch (c.Name) {
-                        case "steam_out":
-                        case "kinetic_out":
-                        case "thermal_out":
-                        case "water_out":
-                            powerOutField.SetValue(self, c);
-                            break;
-                        case "kinetic_in":
-                        case "steam_in":
-                        case "thermal_in":
-                        case "water_in":
-                            powerInField.SetValue(self, c);
-                            break;
-                        case "steam":
-                        case "kinetic":
-                        case "thermal":
-                        case "water":
-                            if (c.IsOutput) {
+
+                    foreach (string powerType in ExtraPowerTypes)
+                    {
+                        if (c.Name.StartsWith(powerType)) {
+                            if (c.IsOutput || c.Name.StartsWith(powerType + "_out")) {
                                 powerOutField.SetValue(self, c);
                             } else {
                                 powerInField.SetValue(self, c);
-                            }
-                            break;
+                            } 
+                        }
                     }
                 }
 
