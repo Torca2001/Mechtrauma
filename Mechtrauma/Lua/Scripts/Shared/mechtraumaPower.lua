@@ -25,7 +25,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     s3000D={
-        maxHorsePower=3000,
+        maxHorsePower=3000*1.5,
         oilSlots=1,
         filterSlots=1,
         dieselFuelSlots=4,
@@ -34,7 +34,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     sC2500Da={
-        maxHorsePower=2500,
+        maxHorsePower=2500*1.5,
         oilSlots=2,
         filterSlots=1,
         dieselFuelSlots=3,
@@ -43,7 +43,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     sC2500Db={
-        maxHorsePower=2500,
+        maxHorsePower=2500*1.5,
         oilSlots=2,
         filterSlots=1,
         dieselFuelSlots=3,
@@ -52,7 +52,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     s1500D={
-        maxHorsePower=1500,
+        maxHorsePower=1500*1.5,
         oilSlots=1,
         filterSlots=1,
         dieselFuelSlots=3,
@@ -61,7 +61,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     PDG500={
-        maxHorsePower=500,
+        maxHorsePower=500*1.5,
         oilSlots=1,
         filterSlots=1,
         dieselFuelSlots=1,
@@ -70,7 +70,7 @@ MT.DE = {
         ignitionType=MT.F.sGeneratorIgnition
     },
     PDG250={
-        maxHorsePower=250,
+        maxHorsePower=250*1.5,
         oilSlots=1,
         filterSlots=1,
         dieselFuelSlots=1,
@@ -80,14 +80,13 @@ MT.DE = {
     }
 }
 
-function MT.F.dieselGenerator(item, deteriorate)
+-- called by updateItems
+function MT.F.dieselGenerator(item)
     -- convert load(kW) to targetPower(HP) 1.341022   
     local simpleGenerator = MT.HF.findComponent(item, "SimpleGenerator")
+    local powered = item.GetComponentString("Powered")
     local targetPower = simpleGenerator.GridLoad
     
-    -- updateItems does not pass additional arguements currently
-    if deteriorate ~= false then deteriorate = true end
-
     -- print(simpleGenerator.IsOn)
     -- print("Load: " .. tostring(simpleGenerator.GridLoad))
     -- print("PowerOut: " .. tostring(simpleGenerator.PowerOut.Grid.Power))
@@ -95,10 +94,16 @@ function MT.F.dieselGenerator(item, deteriorate)
     -- check for a diesel series index
     if MT.DE[item.Prefab.Identifier.Value] ~= nil then
         -- Results: Pass the ingition type, diesel series, and target power to the dieslEngine function to attempt combustion
-        local result = MT.F.dieselEngine(item, MT.DE[item.Prefab.Identifier.Value].ignitionType(item), MT.DE[item.Prefab.Identifier.Value], targetPower, deteriorate)
+        local result = MT.F.dieselEngine(item, MT.DE[item.Prefab.Identifier.Value].ignitionType(item), MT.DE[item.Prefab.Identifier.Value], targetPower)
         
-        -- Generate Power: need to add the HP to kW conversion at some point             
+        -- Generate Power: need to add the HP to kW conversion at some point
+        
+        -- set the power consumpition for the server        
         simpleGenerator.PowerConsumption = -result.powerGenerated
+        
+        -- set power to generate and send it to clients
+        simpleGenerator.PowerToGenerate = result.powerGenerated 
+        if SERVER then Networking.CreateEntityEvent(item, Item.ChangePropertyEventData(simpleGenerator.SerializableProperties[Identifier("PowerToGenerate")], simpleGenerator)) end
 
     else
         -- invalid diesel series index
@@ -106,9 +111,8 @@ function MT.F.dieselGenerator(item, deteriorate)
     end
 end
 
--- calculates if and how much power an engine should be producing
-function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower, deteriorate)
-    if MT.Deltatime == nil then MT.Deltatime = 2 end 
+-- called by MT.F.dieselGenerator: calculates if and how much power an engine should be producing
+function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower)
     --ADVANCED DIESEL DESIGN
     -- HP:kW = 1:0.75
     -- HP:diesel(l) 1:0.2        
@@ -122,7 +126,7 @@ function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower, deteriorat
     local auxOxygenVol = 0
     local hullOxygenPercentage = 0
     -- set hullOxygenPercentage to 0 when submerged or outside of a hull.
-     if item.InWater == false and item.FindHull() ~= nil then hullOxygenPercentage = item.FindHull().OxygenPercentage else hullOxygenPercentage = 0 end
+    if item.InWater == false and item.FindHull() ~= nil then hullOxygenPercentage = item.FindHull().OxygenPercentage else hullOxygenPercentage = 0 end
 
     -- diesel
     local dieselFuelItems = {}
@@ -138,7 +142,7 @@ function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower, deteriorat
     local frictionDamage = MT.Config.frictionBaseDPS * MT.Deltatime * dieselSeries.oilSlots -- convert baseDPS to DPD and multiply for oil capacity    
     local oilDeterioration = MT.Config.oilBaseDPS * MT.Deltatime * dieselSeries.oilSlots -- convert baseDPS to DPD and multiply for capacity    
 
-    
+
     -- INVENTORY: loop through the inventory and see what we have
     local index = 0
     while(index < item.OwnInventory.Capacity) do
@@ -179,23 +183,22 @@ function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower, deteriorat
         -- set the generated amount to be returned
         dieselEngine.powerGenerated = MT.HF.Clamp(targetPower, 0, dieselSeries.maxHorsePower)
 
-        -- DETERIORATION: only deteriorate when told         
-        if deteriorate then
-            -- burn oxygen       
-            if hullOxygenPercentage >= 75 then  -- burn hull oxygen when above 75%
-                item.FindHull().Oxygen = item.FindHull().Oxygen - (oxygenNeeded * 2250) -- 2250 hull oxygen ~= 1 oxygen condition                     
-            else
-                MT.HF.subFromListSeq (oxygenNeeded, auxOxygenItems) -- burn auxOxygen
-            end
-            -- burn diesel
-            MT.HF.subFromListSeq (dieselFuelNeededCL, dieselFuelItems) -- burn diesel sequentially, improves resource management 
-            -- burn oil
-            MT.HF.subFromListEqu(oilDeterioration, oilItems) -- total oilDeterioration is spread across all oilItems. (being low on oil will make the remaining oil deteriorate faster)
-            -- deteriorate filter(s)
-            MT.HF.subFromListAll((MT.Config.oilFilterDPS * MT.Deltatime), oilFiltrationItems) -- apply deterioration to each filters independently, they have already reduced oil deterioration
-            -- friction damage
-            item.Condition = item.Condition - frictionDamage
+        -- DETERIORATION: 
+        -- burn oxygen       
+        if hullOxygenPercentage >= 75 then  -- burn hull oxygen when above 75%
+            item.FindHull().Oxygen = item.FindHull().Oxygen - (oxygenNeeded * 2250) -- 2250 hull oxygen ~= 1 oxygen condition                     
+        else
+            MT.HF.subFromListSeq (oxygenNeeded, auxOxygenItems) -- burn auxOxygen
         end
+        -- burn diesel
+        MT.HF.subFromListSeq (dieselFuelNeededCL, dieselFuelItems) -- burn diesel sequentially, improves resource management 
+        -- burn oil
+        MT.HF.subFromListEqu(oilDeterioration, oilItems) -- total oilDeterioration is spread across all oilItems. (being low on oil will make the remaining oil deteriorate faster)
+        -- deteriorate filter(s)
+        MT.HF.subFromListAll((MT.Config.oilFilterDPS * MT.Deltatime), oilFiltrationItems) -- apply deterioration to each filters independently, they have already reduced oil deterioration
+        -- friction damage
+        item.Condition = item.Condition - frictionDamage
+
         -- DEBUG PRINTING: print("Diesel Fuel will last for: ",(dieselFuelVol / dieselFuelNeededCL) * MT.Deltatime/ 60, " minutes.")
         -- DEBUG PRINTING: print("Oil will last for: ", oilVol / oilDeterioration * MT.Deltatime / 60)
         -- DEBUG PRINTING: print("Filration will last for: ", (oilFiltrationVol / MT.Config.oilFilterDPS) / 60 ) -- no need to calculate the deltaTime here since calc is in dps
@@ -211,15 +214,15 @@ function MT.F.dieselEngine(item, ignition, dieselSeries, targetPower, deteriorat
         -- combustion failed        
         dieselEngine.combustion = false
         dieselEngine.powerGenerated = 0
-        
+
         -- SOUND / LIGHT - dieselEngine sound is controlled by an XML light so it will toggle with the light(s)
         for k, item in pairs(item.Components) do
             if tostring(item) == "Barotrauma.Items.Components.LightComponent" then item.IsOn = false end
         end
-            
+
         return dieselEngine
     end
-    
+
 end
 
 Hook.Patch(
@@ -241,22 +244,7 @@ Hook.Patch(
   function(instance, ptable)
     load = ptable["load"]
     
-    -- Set power consumption    
-    MT.F.dieselGenerator(instance.item, false)
-
+    -- Set power consumption from PowerToGenerate    
+    instance.PowerConsumption = -instance.PowerToGenerate
+    
   end, Hook.HookMethodType.Before)
-
-
---[[
-  MT.GridUpdateCooldown = MT.GridUpdateCooldown-1
-  if (MT.GridUpdateCooldown <= 0) then
-      MT.GridUpdateCooldown = MT.GridUpdateInterval
-  end        ]]
-
-   --[[ debug testing
-   if test_start == nil then test_start = os.time() else time_elapsed = (test_start - os.time()) * -1 end
-   print("TIME ELAPSED: ", MT.HF.Round(test_start - os.time(), 2)*-1)
-   update_cycles = update_cycles + 1
-   print("UPDATE CYCLES - EXPECTED/ACTUAL: ", MT.HF.Round(time_elapsed * 60,0), "/", update_cycles)
-   
-   ]]
