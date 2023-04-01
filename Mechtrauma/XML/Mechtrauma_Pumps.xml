@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Items>
-	
+
 	<!-- PUMP MOUNT: -->
 	<Item name="Pump Mount" description="" identifier="pump_mount" Tags="pump,pump_mount" showinstatusmonitor="false" category="Machine,Pump" interactthroughwalls="true" Scale="0.5" interactdistance="10" spritecolor="1.0,1.0,1.0,1.0" linkable="true" allowedlinks="turretammosource">
 		<Sprite texture="%ModDir%/Images/mechtrauma_mounts.png" depth="0.01" sourcerect="128,256,128,184" canflipy="false" />
